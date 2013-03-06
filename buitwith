@@ -1,0 +1,100 @@
+#!/bin/sh
+
+# 4ad109c8-4cff-4f6d-aa34-b83565743c31
+
+version=0.0.0
+api_key=''
+url=''
+no_cache=0
+show_help=0
+basename=$(basename $0)
+jq_cmd="jq -M -r"
+
+url_encode () {
+  echo $(python -c "import sys, urllib as ul; print ul.quote_plus(sys.argv[1])" "$1")
+}
+
+url_decode () {
+  echo $(python -c "import sys, urllib as ul; print ul.unquote_plus(sys.argv[1])" "$1")
+}
+
+while [ $# -gt 0 ]
+do
+  case $1 in
+    --no-cache|-c)
+      no_cache=1
+      ;;
+
+    --help|-h)
+      show_help=1
+      ;;
+
+    *)
+      if [ "$api_key" == "" ]; then
+        api_key=$1
+      elif [ "$url" == "" ]; then
+        url=$1
+      fi
+  esac
+
+  shift
+done
+
+if [ $show_help == 1 ]; then
+  echo "BuiltWith cli v$version"
+  echo
+  echo "Usage: $basename [options] <api_key> <url>"
+  echo
+  echo " Options:"
+  echo "  -c, --no-cache        If false the lookup will visit the URL"
+  echo "                        to get a new profile. This is slower"
+  echo "                        than using the cache which is no more"
+  echo "                        than 14 days old."
+  echo
+  echo "  -h, --help            Show this help"
+  exit 0
+fi
+
+if [ "$api_key" == "" ]; then
+  echo "API Key is required." >&2
+  exit 1
+fi
+
+if [ "$url" == "" ]; then
+  echo "URL is required." >&2
+  exit 1
+fi
+
+url=$(url_encode $url)
+
+request_url="http://api.builtwith.com/v1/api.json?KEY=$api_key&LOOKUP=$url"
+if [ $no_cache == 1 ]; then
+  request_url="$request_url&CACHE=false"
+fi
+
+result=$(curl -s $request_url)
+
+error=$(echo $result | jq '.error | length')
+
+if [ $error != 0 ]; then
+  echo $result | $jq_cmd '.error | tostring'
+  exit 1
+fi
+
+printf 'Domain: %s\n' $(echo $result | $jq_cmd '.Domain')
+printf 'Full Url: %s\n' $(echo $result | $jq_cmd '.FullUrl')
+printf 'Profile Url: %s\n' $(echo $result | $jq_cmd '.ProfileUrl')
+
+echo
+printf "Technologies:\n"
+for i in $(seq 0 $(echo $result | $jq_cmd '.Technologies | length - 1'))
+do
+  tag=$(echo $result | $jq_cmd ".Technologies[$i].Tag")
+  name=$(echo $result | $jq_cmd ".Technologies[$i].Name")
+  link=$(echo $result | $jq_cmd ".Technologies[$i].Link")
+  printf "  %s" "$name"
+  if [ "$link" != "" ]; then
+    printf " (%s)" "$link"
+  fi
+  echo
+done
